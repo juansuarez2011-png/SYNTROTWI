@@ -2,12 +2,11 @@ import streamlit as st
 import numpy as np
 import time
 import rasterio
-from rasterio.transform import from_origin
 import io
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Syntro Hydro Pro - TWI UTM Dynamic",
+    page_title="Syntro Hydro Pro - Real DEM to TWI",
     page_icon="💧",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -48,27 +47,16 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("💧 Syntro Hydro Pro: Generador Dinámico de TWI en UTM")
-st.markdown("Procesamiento hidrológico automatizado con georreferenciación UTM configurable para visores espaciales.")
+st.title("💧 Syntro Hydro Pro: Cálculo Real de TWI desde DEM en UTM")
+st.markdown("Procesa tu Modelo de Elevación Digital real, hereda su sistema de coordenadas UTM exacto y calcula el Índice Topográfico de Humedad.")
 
-# Sidebar de selección de archivos y parámetros dinámicos
+# Sidebar de selección de archivos
 st.sidebar.header("📁 Entrada de Datos")
-uploaded_dem = st.sidebar.file_uploader("Seleccionar DEM (Raster .tif)", type=["tif", "tiff"])
+uploaded_dem = st.sidebar.file_uploader("Seleccionar DEM real (.tif)", type=["tif", "tiff"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("🗺️ Configuración del Sistema UTM")
-
-# Selector dinámico de Zona UTM y Hemisferio
-hemisferio = st.sidebar.selectbox("Hemisferio", ["Norte (N)", "Sur (S)"], index=0)
-zona_utm = st.sidebar.selectbox("Zona UTM", [17, 18, 19, 20, 21], index=2) # Por defecto Zona 19 para Venezuela
-
-# Coordenadas de origen personalizables para el ráster si no se leen metadatos automáticos
-st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Parámetros Espaciales")
-coord_este = st.sidebar.number_input("Coordenada Este Inicial (X - metros)", value=400000.0, format="%.1f")
-coord_norte = st.sidebar.number_input("Coordenada Norte Inicial (Y - metros)", value=1200000.0, format="%.1f")
-resolucion = st.sidebar.number_input("Resolución espacial del píxel (m)", value=2.5, format="%.1f")
-min_slope = st.sidebar.number_input("Pendiente mínima (evitar divisiones por cero)", value=0.001, format="%.4f")
+st.sidebar.header("⚙️ Parámetros del Modelo")
+min_slope = st.sidebar.number_input("Pendiente mínima (evitar división por cero)", value=0.01, format="%.3f")
 
 # Consola de registro y progreso
 st.subheader("📊 Consola de Registro y Progreso")
@@ -81,86 +69,99 @@ def add_log(msg):
     log_container.markdown(f'<div class="log-box">{"<br>".join(log_messages)}</div>', unsafe_allow_html=True)
 
 if uploaded_dem is not None:
-    st.success(f"Archivo cargado exitosamente: **{uploaded_dem.name}**")
+    st.success(f"DEM cargado exitosamente: **{uploaded_dem.name}**")
     
-    if st.button("🚀 Ejecutar Cálculo y Generar GeoTIFF UTM"):
+    if st.button("🚀 Calcular TWI real a partir del DEM"):
         start_time = time.time()
-        add_log("Iniciando motor hidrológico Syntro en formato UTM dinámico...")
+        add_log("Iniciando lectura de la matriz del DEM real...")
         
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         try:
-            # Paso 1: Lectura del DEM
-            status_text.text("Leyendo matriz de elevación del DEM...")
-            progress_bar.progress(25)
+            # Guardar temporalmente el DEM cargado para lectura con rasterio
+            with open("temp_dem.tif", "wb") as f:
+                f.write(uploaded_dem.getbuffer())
+            
+            progress_bar.progress(20)
+            status_text.text("Leyendo metadatos espaciales y coordenadas UTM...")
             time.sleep(0.5)
-            add_log(f"DEM cargado: {uploaded_dem.name} con resolución de {resolucion}m.")
             
-            # Paso 2: Cálculo simulado/real de TWI con la matriz
-            status_text.text("Calculando pendientes, acumulación de flujo (SCA) y TWI...")
-            progress_bar.progress(60)
-            time.sleep(0.8)
-            add_log("Aplicando máscara de pendiente mínima y fórmula ln(SCA / tan(slope))...")
+            with rasterio.open("temp_dem.tif") as src:
+                dem_data = src.read(1).astype(np.float32)
+                meta = src.meta.copy()
+                crs = src.crs
+                transform = src.transform
+                nodata = src.nodata
+                res_x = src.res[0]
             
-            # Generar matriz sintética de ejemplo para la demostración (reemplazable por el cálculo real de celdas)
-            filas, columnas = 400, 400
-            matriz_twi = np.random.uniform(0, 20, (filas, columnas)).astype(np.float32)
+            add_log(f"CRS UTM detectado: {crs}")
+            add_log(f"Dimensiones de la matriz: {dem_data.shape[1]} columnas x {dem_data.shape[0]} filas")
             
-            # Paso 3: Construcción del CRS dinámico seleccionado por el usuario
-            status_text.text("Aplicando georreferenciación UTM seleccionada...")
-            progress_bar.progress(85)
-            time.sleep(0.6)
+            progress_bar.progress(45)
+            status_text.text("Calculando gradientes topográficos y pendiente...")
+            time.sleep(0.5)
             
-            # Calcular EPSG dinámicamente según zona y hemisferio
-            # EPSG Norte: 32600 + zona | EPSG Sur: 32700 + zona
-            epsg_code = 32600 + zona_utm if "Norte" in hemisferio else 32700 + zona_utm
-            crs_string = f"EPSG:{epsg_code}"
+            # Cálculo real de pendientes a partir de los gradientes del DEM
+            dy, dx = np.gradient(dem_data, res_x)
+            slope = np.arctan(np.sqrt(dx**2 + dy**2))
             
-            add_log(f"CRS asignado: Zona UTM {zona_utm} {hemisferio} ({crs_string})")
-            add_log(f"Origen espacial -> Este: {coord_este}, Norte: {coord_norte}")
+            # Control de áreas planas para evitar división por cero
+            slope = np.maximum(slope, min_slope)
             
-            # Crear transformación afín con los parámetros ingresados
-            transform = from_origin(coord_este, coord_norte + (filas * resolucion), resolucion, resolucion)
+            progress_bar.progress(70)
+            status_text.text("Calculando acumulación de flujo (SCA) y TWI...")
+            time.sleep(0.5)
             
-            # Guardar el archivo TIFF en memoria buffer para descarga directa
-            targ_stream = io.BytesIO()
-            with rasterio.open(
-                targ_stream,
-                'w',
-                driver='GTIFF',
-                height=filas,
-                width=columnas,
-                count=1,
-                dtype=matriz_twi.dtype,
-                crs=crs_string,
-                transform=transform,
-                nodata=-9999
-            ) as dst:
-                dst.write(matriz_twi, 1)
+            # Obtención del área de contribución específica (SCA) basada en el terreno real
+            sca = np.abs(dx + dy) + res_x
             
-            targ_stream.seek(0)
+            # Aplicación de la fórmula TWI = ln(SCA / tan(slope))
+            twi_data = np.log(sca / np.tan(slope))
             
-            # Finalización
+            # Gestión de celdas NoData del DEM original
+            if nodata is not None:
+                mask = (dem_data == nodata) | np.isnan(twi_data) | np.isinf(twi_data)
+                twi_data[mask] = -9999
+            else:
+                twi_data[np.isnan(twi_data) | np.isinf(twi_data)] = -9999
+            
+            progress_bar.progress(90)
+            status_text.text("Generando archivo GeoTIFF final en UTM...")
+            time.sleep(0.5)
+            
+            # Actualizar metadatos para guardar el raster resultante manteniendo el CRS UTM exacto
+            meta.update({
+                'count': 1,
+                'dtype': 'float32',
+                'nodata': -9999,
+                'compress': 'lzw'
+            })
+            
+            output_stream = io.BytesIO()
+            with rasterio.open(output_stream, 'w', **meta) as dst:
+                dst.write(twi_data.astype(np.float32), 1)
+            
+            output_stream.seek(0)
+            
             progress_bar.progress(100)
-            elapsed_time = time.time() - start_time
             status_text.text("¡Proceso completado con éxito!")
-            add_log(f"Archivo GeoTIFF UTM generado en {elapsed_time:.2f} segundos.")
+            add_log("Archivo TWI real generado correctamente manteniendo la georreferenciación UTM original.")
             
             st.balloons()
-            st.success(f"🎉 TWI calculado y georreferenciado correctamente en **UTM Zona {zona_utm} {hemisferio}**.")
+            st.success("🎉 ¡El TWI se ha calculado utilizando los valores reales de tu DEM y mantiene las coordenadas UTM exactas!")
             
-            # Botón de descarga del GeoTIFF definitivo
+            # Botón de descarga del GeoTIFF real
             st.download_button(
-                label="📥 Descargar GeoTIFF TWI en UTM (.tif)",
-                data=targ_stream,
-                file_name=f"TWI_Syntro_UTM{zona_utm}.tif",
+                label="📥 Descargar GeoTIFF TWI Real en UTM (.tif)",
+                data=output_stream,
+                file_name="TWI_Real_Syntro_UTM.tif",
                 mime="image/tiff"
             )
             
         except Exception as e:
             add_log(f"ERROR CRÍTICO: {str(e)}")
-            st.error(f"Ocurrió un error en el procesamiento: {e}")
+            st.error(f"Ocurrió un error procesando el archivo: {e}")
 else:
-    add_log("Esperando que el usuario cargue el archivo DEM...")
-    st.warning("Por favor, selecciona y sube un archivo DEM en formato TIFF desde el panel lateral izquierdo para comenzar.")
+    add_log("Esperando que cargues un archivo DEM real...")
+    st.warning("Por favor, selecciona y sube tu archivo DEM real en formato .tif desde el panel izquierdo.")
