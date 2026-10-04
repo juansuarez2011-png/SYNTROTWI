@@ -215,7 +215,6 @@ if uploaded_dem is not None:
             status_text.text(f"¡Proceso completado en {elapsed_time:.2f} segundos!")
             add_log(f"Área de cosecha delimitada: {total_harvest_area_ha:.2f} hectáreas.")
             
-            st.balloons()
             st.success("🎉 ¡Modelos TWI y Cosecha de Agua calculados sin errores ni manchas negras!")
             
             # Tarjetas de métricas
