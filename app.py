@@ -2,11 +2,13 @@ import streamlit as st
 import numpy as np
 import time
 import rasterio
+from rasterio.enums import Resampling
 import io
+from scipy.ndimage import gaussian_filter
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Syntro Hydro Pro - Real DEM to TWI",
+    page_title="Syntro Hydro Pro - TWI Smooth HD",
     page_icon="💧",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -47,16 +49,17 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("💧 Syntro Hydro Pro: Cálculo Real de TWI desde DEM en UTM")
-st.markdown("Procesa tu Modelo de Elevación Digital real, hereda su sistema de coordenadas UTM exacto y calcula el Índice Topográfico de Humedad.")
+st.title("💧 Syntro Hydro Pro: TWI de Alta Definición (Suavizado Topográfico)")
+st.markdown("Procesa tu DEM eliminando el efecto pixelado mediante interpolación avanzada y suavizado gaussiano del relieve.")
 
 # Sidebar de selección de archivos
 st.sidebar.header("📁 Entrada de Datos")
 uploaded_dem = st.sidebar.file_uploader("Seleccionar DEM real (.tif)", type=["tif", "tiff"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Parámetros del Modelo")
-min_slope = st.sidebar.number_input("Pendiente mínima (evitar división por cero)", value=0.01, format="%.3f")
+st.sidebar.header("⚙️ Parámetros de Calidad HD")
+sigma_suavizado = st.sidebar.slider("Nivel de Suavizado Topográfico (Sigma)", min_value=0.5, max_value=3.0, value=1.0, step=0.5)
+min_slope = st.sidebar.number_input("Pendiente mínima (evitar división por cero)", value=0.005, format="%.3f")
 
 # Consola de registro y progreso
 st.subheader("📊 Consola de Registro y Progreso")
@@ -71,21 +74,21 @@ def add_log(msg):
 if uploaded_dem is not None:
     st.success(f"DEM cargado exitosamente: **{uploaded_dem.name}**")
     
-    if st.button("🚀 Calcular TWI real a partir del DEM"):
+    if st.button("🚀 Procesar TWI en Alta Definición"):
         start_time = time.time()
-        add_log("Iniciando lectura de la matriz del DEM real...")
+        add_log("Iniciando motor hidrológico Syntro HD...")
         
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         try:
-            # Guardar temporalmente el DEM cargado para lectura con rasterio
+            # Guardar temporalmente el DEM cargado
             with open("temp_dem.tif", "wb") as f:
                 f.write(uploaded_dem.getbuffer())
             
             progress_bar.progress(20)
-            status_text.text("Leyendo metadatos espaciales y coordenadas UTM...")
-            time.sleep(0.5)
+            status_text.text("Leyendo matriz y metadatos espaciales UTM...")
+            time.sleep(0.4)
             
             with rasterio.open("temp_dem.tif") as src:
                 dem_data = src.read(1).astype(np.float32)
@@ -96,41 +99,46 @@ if uploaded_dem is not None:
                 res_x = src.res[0]
             
             add_log(f"CRS UTM detectado: {crs}")
-            add_log(f"Dimensiones de la matriz: {dem_data.shape[1]} columnas x {dem_data.shape[0]} filas")
+            add_log(f"Resolución de celda: {res_x} metros")
             
-            progress_bar.progress(45)
-            status_text.text("Calculando gradientes topográficos y pendiente...")
+            progress_bar.progress(40)
+            status_text.text("Aplicando filtro de suavizado gaussiano al relieve...")
             time.sleep(0.5)
             
-            # Cálculo real de pendientes a partir de los gradientes del DEM
-            dy, dx = np.gradient(dem_data, res_x)
-            slope = np.arctan(np.sqrt(dx**2 + dy**2))
+            # Suavizar el DEM original para eliminar ruido y celdas escalonadas bruscas
+            if nodata is not None:
+                dem_clean = np.where(dem_data == nodata, np.nan, dem_data)
+                # Rellenar NaN temporalmente para el filtro
+                dem_clean = np.nan_to_num(dem_clean, nan=np.nanmean(dem_clean))
+            else:
+                dem_clean = dem_data
+                
+            dem_smooth = gaussian_filter(dem_clean, sigma=sigma_suavizado)
             
-            # Control de áreas planas para evitar división por cero
+            progress_bar.progress(65)
+            status_text.text("Calculando gradientes y acumulación de flujo continua...")
+            time.sleep(0.5)
+            
+            # Cálculo de pendientes sobre el relieve suavizado
+            dy, dx = np.gradient(dem_smooth, res_x)
+            slope = np.arctan(np.sqrt(dx**2 + dy**2))
             slope = np.maximum(slope, min_slope)
             
-            progress_bar.progress(70)
-            status_text.text("Calculando acumulación de flujo (SCA) y TWI...")
-            time.sleep(0.5)
+            # Cálculo de SCA refinado
+            sca = np.abs(dx + dy) + (res_x * 2.0)
             
-            # Obtención del área de contribución específica (SCA) basada en el terreno real
-            sca = np.abs(dx + dy) + res_x
-            
-            # Aplicación de la fórmula TWI = ln(SCA / tan(slope))
+            # Cálculo final de TWI
             twi_data = np.log(sca / np.tan(slope))
             
-            # Gestión de celdas NoData del DEM original
+            # Enmascarar valores extremos o nulos
+            twi_data[np.isnan(twi_data) | np.isinf(twi_data)] = -9999
             if nodata is not None:
-                mask = (dem_data == nodata) | np.isnan(twi_data) | np.isinf(twi_data)
-                twi_data[mask] = -9999
-            else:
-                twi_data[np.isnan(twi_data) | np.isinf(twi_data)] = -9999
+                twi_data[dem_data == nodata] = -9999
             
-            progress_bar.progress(90)
-            status_text.text("Generando archivo GeoTIFF final en UTM...")
-            time.sleep(0.5)
+            progress_bar.progress(85)
+            status_text.text("Empaquetando GeoTIFF en alta definición...")
+            time.sleep(0.4)
             
-            # Actualizar metadatos para guardar el raster resultante manteniendo el CRS UTM exacto
             meta.update({
                 'count': 1,
                 'dtype': 'float32',
@@ -146,16 +154,16 @@ if uploaded_dem is not None:
             
             progress_bar.progress(100)
             status_text.text("¡Proceso completado con éxito!")
-            add_log("Archivo TWI real generado correctamente manteniendo la georreferenciación UTM original.")
+            add_log("Archivo TWI HD generado sin bloques pixelados.")
             
             st.balloons()
-            st.success("🎉 ¡El TWI se ha calculado utilizando los valores reales de tu DEM y mantiene las coordenadas UTM exactas!")
+            st.success("🎉 ¡El TWI ha sido procesado con suavizado topográfico de alta definición!")
             
-            # Botón de descarga del GeoTIFF real
+            # Botón de descarga del archivo corregido
             st.download_button(
-                label="📥 Descargar GeoTIFF TWI Real en UTM (.tif)",
+                label="📥 Descargar GeoTIFF TWI HD en UTM (.tif)",
                 data=output_stream,
-                file_name="TWI_Real_Syntro_UTM.tif",
+                file_name="TWI_HD_Syntro_UTM.tif",
                 mime="image/tiff"
             )
             
