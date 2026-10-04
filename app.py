@@ -2,9 +2,7 @@ import streamlit as st
 import numpy as np
 import time
 import rasterio
-from rasterio.enums import Resampling
 import io
-from scipy.ndimage import gaussian_filter
 
 # Configuración de la página
 st.set_page_config(
@@ -50,7 +48,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("💧 Syntro Hydro Pro: TWI de Alta Definición (Suavizado Topográfico)")
-st.markdown("Procesa tu DEM eliminando el efecto pixelado mediante interpolación avanzada y suavizado gaussiano del relieve.")
+st.markdown("Procesa tu DEM eliminando el efecto pixelado mediante interpolación avanzada y suavizado de relieve nativo.")
 
 # Sidebar de selección de archivos
 st.sidebar.header("📁 Entrada de Datos")
@@ -58,7 +56,7 @@ uploaded_dem = st.sidebar.file_uploader("Seleccionar DEM real (.tif)", type=["ti
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Parámetros de Calidad HD")
-sigma_suavizado = st.sidebar.slider("Nivel de Suavizado Topográfico (Sigma)", min_value=0.5, max_value=3.0, value=1.0, step=0.5)
+radio_suavizado = st.sidebar.slider("Nivel de Suavizado por Ventana Móvil", min_value=1, max_value=5, value=1, step=1)
 min_slope = st.sidebar.number_input("Pendiente mínima (evitar división por cero)", value=0.005, format="%.3f")
 
 # Consola de registro y progreso
@@ -70,6 +68,20 @@ def add_log(msg):
     timestamp = time.strftime("%H:%M:%S")
     log_messages.append(f"[{timestamp}] {msg}")
     log_container.markdown(f'<div class="log-box">{"<br>".join(log_messages)}</div>', unsafe_allow_html=True)
+
+def simple_smooth(arr, radius):
+    """Aplica un suavizado espacial por vecinos utilizando NumPy puro."""
+    if radius < 1:
+        return arr
+    out = arr.copy()
+    h, w = arr.shape
+    for r in range(radius, h - radius):
+        for c in range(radius, w - radius):
+            window = arr[r-radius:r+radius+1, c-radius:c+radius+1]
+            valid_vals = window[~np.isnan(window)]
+            if valid_vals.size > 0:
+                out[r, c] = np.mean(valid_vals)
+    return out
 
 if uploaded_dem is not None:
     st.success(f"DEM cargado exitosamente: **{uploaded_dem.name}**")
@@ -102,18 +114,19 @@ if uploaded_dem is not None:
             add_log(f"Resolución de celda: {res_x} metros")
             
             progress_bar.progress(40)
-            status_text.text("Aplicando filtro de suavizado gaussiano al relieve...")
+            status_text.text("Aplicando filtro de suavizado espacial al relieve...")
             time.sleep(0.5)
             
-            # Suavizar el DEM original para eliminar ruido y celdas escalonadas bruscas
+            # Gestionar nulos y aplicar suavizado nativo
             if nodata is not None:
                 dem_clean = np.where(dem_data == nodata, np.nan, dem_data)
-                # Rellenar NaN temporalmente para el filtro
-                dem_clean = np.nan_to_num(dem_clean, nan=np.nanmean(dem_clean))
             else:
                 dem_clean = dem_data
                 
-            dem_smooth = gaussian_filter(dem_clean, sigma=sigma_suavizado)
+            dem_smooth = simple_smooth(dem_clean, radio_suavizado)
+            
+            # Rellenar cualquier borde restante si existiera
+            dem_smooth = np.nan_to_num(dem_smooth, nan=np.nanmean(dem_clean))
             
             progress_bar.progress(65)
             status_text.text("Calculando gradientes y acumulación de flujo continua...")
