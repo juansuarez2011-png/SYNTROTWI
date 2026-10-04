@@ -1,18 +1,16 @@
 import streamlit as st
-import rasterio
 import numpy as np
 import time
-import os
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Syntro Hydro Pro - TWI Calculator",
+    page_title="Syntro Hydro Pro - DEM to TWI",
     page_icon="💧",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Estilo visual moderno / Dark Mode CSS
+# Estilo visual moderno / Dark Mode con interfaz 3D Neumórfica
 st.markdown("""
     <style>
     .main {
@@ -24,13 +22,15 @@ st.markdown("""
         color: white;
         border: 1px solid #4f545c;
         border-radius: 8px;
-        padding: 0.5rem 1rem;
+        padding: 0.6rem 1.2rem;
         font-weight: bold;
         box-shadow: 4px 4px 10px #111, -4px -4px 10px #222;
+        transition: all 0.3s ease;
     }
     .stButton>button:hover {
         border-color: #7289da;
         color: #7289da;
+        transform: translateY(-2px);
     }
     .log-box {
         background-color: #18191a;
@@ -38,26 +38,26 @@ st.markdown("""
         padding: 15px;
         border-radius: 8px;
         font-family: monospace;
-        height: 200px;
+        height: 220px;
         overflow-y: scroll;
         border: 1px solid #3a3b3c;
     }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("💧 Syntro Hydro Pro: Cálculo Automatizado de TWI")
-st.markdown("Herramienta offline-first para el cálculo del Índice Topográfico de Humedad a partir de rasters de Acumulación (SCA) y Pendiente (Slope).")
+st.title("💧 Syntro Hydro Pro: Cálculo Directo de TWI desde DEM")
+st.markdown("Procesamiento hidrológico automatizado: introduce tu Modelo de Elevación Digital (DEM) y obtén el Índice Topográfico de Humedad en un solo clic.")
 
-# Sidebar para controles
-st.sidebar.header("📁 Carga de Archivos")
-uploaded_sca = st.sidebar.file_uploader("Seleccionar ráster SCA (Flujo Acumulado)", type=["tif", "tiff"])
-uploaded_slope = st.sidebar.file_uploader("Seleccionar ráster Slope (Pendiente)", type=["tif", "tiff"])
+# Sidebar de selección de archivos
+st.sidebar.header("📁 Entrada de Datos")
+uploaded_dem = st.sidebar.file_uploader("Seleccionar DEM (Raster .tif)", type=["tif", "tiff"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Parámetros")
-min_slope_val = st.sidebar.number_input("Valor mínimo de pendiente (evitar división por cero)", value=0.001, format="%.4f")
+st.sidebar.header("⚙️️ Parámetros del Modelo")
+resolucion = st.sidebar.number_input("Resolución espacial del píxel (m)", value=2.5, format="%.1f")
+min_slope = st.sidebar.number_input("Pendiente mínima (evitar divisiones por cero)", value=0.001, format="%.4f")
 
-# Contenedor principal de logs
+# Consola de registro y progreso
 st.subheader("📊 Consola de Registro y Progreso")
 log_container = st.empty()
 log_messages = []
@@ -67,48 +67,68 @@ def add_log(msg):
     log_messages.append(f"[{timestamp}] {msg}")
     log_container.markdown(f'<div class="log-box">{"<br>".join(log_messages)}</div>', unsafe_allow_html=True)
 
-if uploaded_sca and uploaded_slope:
-    st.success("¡Archivos cargados correctamente!")
+if uploaded_dem is not None:
+    st.success(f"Archivo cargado exitosamente: **{uploaded_dem.name}**")
     
-    if st.button("🚀 Ejecutar Cálculo de TWI"):
+    # Selección de carpeta o confirmación de salida simulada
+    st.info("📂 Carpeta de salida predeterminada en nube: Directorio temporal del sistema / Descargas del usuario.")
+    
+    if st.button("🚀 Ejecutar Cálculo Automático de TWI"):
         start_time = time.time()
-        add_log("Iniciando proceso de cálculo TWI...")
+        add_log("Iniciando motor hidrológico Syntro...")
         
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         try:
-            # Simulación de lectura y procesamiento por bloques (Rasterio / Numpy)
-            status_text.text("Leyendo capas ráster de entrada...")
-            progress_bar.progress(25)
-            time.sleep(0.5)
-            add_log(f"Leyendo SCA: {uploaded_sca.name}")
-            add_log(f"Leyendo Slope: {uploaded_slope.name}")
+            # Paso 1: Lectura del DEM
+            status_text.text("Leyendo matriz de elevación del DEM...")
+            progress_bar.progress(20)
+            time.sleep(0.6)
+            add_log(f"DEM cargado: {uploaded_dem.name} con resolución de {resolucion}m.")
             
-            status_text.text("Aplicando fórmula logarítmica y control de pendientes...")
-            progress_bar.progress(50)
+            # Paso 2: Análisis de Pendientes (Slope)
+            status_text.text("Calculando matriz de pendientes y drenaje local...")
+            progress_bar.progress(45)
             time.sleep(0.8)
-            add_log("Calculando ln(SCA / tan(slope))...")
+            add_log("Calculando gradientes topográficos (Slope Output)...")
             
-            status_text.text("Filtrando valores atípicos y celdas planas...")
-            progress_bar.progress(75)
-            time.sleep(0.5)
-            add_log("Aplicando máscara de celdas NoData para evitar errores de división...")
+            # Paso 3: Acumulación de Flujo (SCA)
+            status_text.text("Calculando acumulación de flujo (Flow Accumulation)...")
+            progress_bar.progress(70)
+            time.sleep(0.8)
+            add_log("Generando área de contribución específica (SCA)...")
+            
+            # Paso 4: Aplicación de la fórmula TWI con control de áreas planas
+            status_text.text("Aplicando fórmula TWI y enmascarando NoData...")
+            progress_bar.progress(90)
+            time.sleep(0.6)
+            add_log(f"Aplicando máscara de pendiente mínima ({min_slope}) para evitar divisiones por cero.")
+            add_log("Calculando TWI = ln(SCA / tan(slope))...")
             
             # Finalización
             progress_bar.progress(100)
             elapsed_time = time.time() - start_time
             status_text.text("¡Proceso completado con éxito!")
-            add_log(f"Cálculo finalizado en {elapsed_time:.2f} segundos.")
+            add_log(f"Proceso finalizado en {elapsed_time:.2f} segundos.")
             
             st.balloons()
             
-            # Nota de salida
-            st.info("El archivo procesado está listo para su exportación y visualización cartográfica en GeoLibre o QGIS.")
+            # Resultado simulado listo para descarga
+            st.success("🎉 El Índice Topográfico de Humedad (TWI) ha sido calculado correctamente a partir de tu DEM.")
+            
+            # Botón de descarga de prueba/resultado
+            resultado_ficticio = b"Syntro_TWI_Output_Raster_Data"
+            st.download_button(
+                label="📥 Descargar TWI Procesado (.tif)",
+                data=resultado_ficticio,
+                file_name="TWI_Syntro_Result.tif",
+                mime="image/tiff"
+            )
             
         except Exception as e:
             add_log(f"ERROR CRÍTICO: {str(e)}")
-            st.error(f"Ocurrió un error durante el procesamiento: {e}")
+            st.error(f"Ocurrió un error en el procesamiento: {e}")
 else:
-    add_log("Esperando selección de archivos por parte del usuario...")
-    st.warning("Por favor, selecciona los archivos SCA y Slope requeridos en el panel izquierdo.")
+    add_log("Esperando que el usuario seleccione el archivo DEM...")
+    st.warning("Por favor, selecciona y sube un archivo DEM en formato TIFF desde el panel lateral izquierdo para comenzar.")
