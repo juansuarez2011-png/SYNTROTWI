@@ -10,7 +10,7 @@ import base64
 icon_path = "icon.ico" if os.path.exists("icon.ico") else ("icon.png" if os.path.exists("icon.png") else "💧")
 
 st.set_page_config(
-    page_title="Syntro Hydro Pro - TWI & Cosecha de Agua HD",
+    page_title="Syntro Hydro Pro - TWI HD",
     page_icon=icon_path,
     layout="wide",
     initial_sidebar_state="expanded"
@@ -85,17 +85,16 @@ if os.path.exists("icon.png"):
 elif os.path.exists("icon.ico"):
     st.sidebar.image("icon.ico", use_container_width=True)
 
-st.title("💧 Syntro Hydro Pro: TWI y Cosecha de Agua HD")
-st.markdown("Procesamiento avanzado de DEM sin bordes negros, cálculo completo del Índice TWI y delimitación de áreas de cosecha hídrica.")
+st.title("💧 Syntro Hydro Pro: Índice TWI HD")
+st.markdown("Procesamiento avanzado de DEM sin bordes negros y cálculo exclusivo del Índice Topográfico de Humedad (TWI).")
 
 # Sidebar de control
 st.sidebar.header("📁 Entrada de Datos DEM")
 uploaded_dem = st.sidebar.file_uploader("Seleccionar DEM (.tif)", type=["tif", "tiff"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Parámetros Hidrológicos HD")
+st.sidebar.header("⚙️️ Parámetros Hidrológicos HD")
 radio_suavizado = st.sidebar.slider("Suavizado Topográfico (Ventana)", min_value=1, max_value=5, value=2, step=1)
-umbral_twi = st.sidebar.slider("Umbral de Acumulación para Cosecha", min_value=1.0, max_value=10.0, value=4.5, step=0.5)
 min_slope = st.sidebar.number_input("Pendiente mínima", value=0.005, format="%.3f")
 
 # Consola de registro y cronómetro
@@ -124,9 +123,9 @@ def simple_smooth(arr, radius):
 if uploaded_dem is not None:
     st.success(f"DEM cargado exitosamente: **{uploaded_dem.name}**")
     
-    if st.button("🚀 Procesar TWI y Área de Cosecha HD"):
+    if st.button("🚀 Procesar Índice TWI HD"):
         start_time = time.time()
-        add_log("Iniciando motor hidrológico Syntro Hydro Pro...")
+        add_log("Iniciando motor hidrológico Syntro Hydro Pro (TWI)...")
         
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -163,7 +162,7 @@ if uploaded_dem is not None:
                 
             dem_smooth = simple_smooth(dem_clean, radio_suavizado)
             
-            progress_bar.progress(60)
+            progress_bar.progress(65)
             status_text.text("Calculando gradientes, pendiente y matriz TWI completa...")
             time.sleep(0.5)
             
@@ -179,15 +178,12 @@ if uploaded_dem is not None:
             # Enmascarar zonas inválidas con NaN (Transparente en visores)
             twi_full[np.isnan(dem_clean) | np.isinf(twi_full)] = np.nan
             
-            # Delimitación del Área de Cosecha de Agua según umbral TWI
-            harvest_mask = twi_full >= umbral_twi
-            harvest_area_raster = np.where(harvest_mask, twi_full, np.nan).astype(np.float32)
-            
-            total_harvest_cells = np.sum(harvest_mask & ~np.isnan(twi_full))
-            total_harvest_area_ha = total_harvest_cells * cell_area_ha
+            # Cálculo de superficie válida del modelo en hectáreas
+            valid_cells = np.sum(~np.isnan(twi_full))
+            total_area_ha = valid_cells * cell_area_ha
             
             progress_bar.progress(85)
-            status_text.text("Empaquetando rasters GeoTIFF en alta definición...")
+            status_text.text("Empaquetando ráster GeoTIFF en alta definición...")
             time.sleep(0.4)
             
             # Actualizar metadatos con NaN como nodata transparente
@@ -204,27 +200,21 @@ if uploaded_dem is not None:
                 dst.write(twi_full.astype(np.float32), 1)
             twi_stream.seek(0)
             
-            # Guardar Área de Cosecha de Agua
-            harvest_stream = io.BytesIO()
-            with rasterio.open(harvest_stream, 'w', **meta) as dst:
-                dst.write(harvest_area_raster.astype(np.float32), 1)
-            harvest_stream.seek(0)
-            
             elapsed_time = time.time() - start_time
             progress_bar.progress(100)
             status_text.text(f"¡Proceso completado en {elapsed_time:.2f} segundos!")
-            add_log(f"Área de cosecha delimitada: {total_harvest_area_ha:.2f} hectáreas.")
+            add_log(f"Área analizada de TWI: {total_area_ha:.2f} hectáreas.")
             
-            st.success("🎉 ¡Modelos TWI y Cosecha de Agua calculados sin errores ni manchas negras!")
+            st.success("🎉 ¡Índice TWI calculado exitosamente sin manchas negras!")
             
             # Tarjetas de métricas
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"""
                     <div class="metric-card">
-                        <h3>💧 Área de Cosecha de Agua</h3>
-                        <h1 style="color: #00ff7f;">{total_harvest_area_ha:.2f} ha</h1>
-                        <p>Superficie de captación hídrica óptima</p>
+                        <h3>📐 Área Total Analizada</h3>
+                        <h1 style="color: #00ff7f;">{total_area_ha:.2f} ha</h1>
+                        <p>Superficie efectiva procesada</p>
                     </div>
                 """, unsafe_allow_html=True)
             with col2:
@@ -236,23 +226,14 @@ if uploaded_dem is not None:
                     </div>
                 """, unsafe_allow_html=True)
             
-            # Botones de descarga independientes para TWI y Cosecha
-            st.markdown("### 📥 Descarga de Resultados Geográficos (UTM)")
-            dcol1, dcol2 = st.columns(2)
-            with dcol1:
-                st.download_button(
-                    label="📥 Descargar Índice TWI Completo HD (.tif)",
-                    data=twi_stream,
-                    file_name="TWI_Completo_Syntro_UTM.tif",
-                    mime="image/tiff"
-                )
-            with dcol2:
-                st.download_button(
-                    label="📥 Descargar Área de Cosecha de Agua HD (.tif)",
-                    data=harvest_stream,
-                    file_name="Area_Cosecha_Agua_Syntro_UTM.tif",
-                    mime="image/tiff"
-                )
+            # Botón de descarga para TWI
+            st.markdown("### 📥 Descarga de Resultado Geográfico (UTM)")
+            st.download_button(
+                label="📥 Descargar Índice TWI Completo HD (.tif)",
+                data=twi_stream,
+                file_name="TWI_Completo_Syntro_UTM.tif",
+                mime="image/tiff"
+            )
             
         except Exception as e:
             add_log(f"ERROR CRÍTICO: {str(e)}")
