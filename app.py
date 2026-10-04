@@ -16,24 +16,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Función para convertir el icono local a base64 e inyectarlo en el HTML <head> del navegador
-def set_favicon(icon_file):
-    if os.path.exists(icon_file):
+# Inyección de metadatos avanzados, favicon y manifiesto PWA para forzar el ícono oficial en el acceso directo
+def inject_pwa_headers():
+    icon_file = "icon.ico" if os.path.exists("icon.ico") else ("icon.png" if os.path.exists("icon.png") else None)
+    icon_base64 = ""
+    if icon_file and os.path.exists(icon_file):
         with open(icon_file, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode()
+            icon_base64 = base64.b64encode(f.read()).decode()
         ext = "ico" if icon_file.endswith(".ico") else "png"
-        st.markdown(f"""
-            <head>
-                <link rel="icon" href="data:image/{ext};base64,{encoded}">
-                <link rel="shortcut icon" href="data:image/{ext};base64,{encoded}">
-            </head>
-        """, unsafe_allow_html=True)
+        
+    st.markdown(f"""
+        <head>
+            <link rel="manifest" href="/app/static/manifest.json" crossorigin="use-credentials">
+            <link rel="icon" href="data:image/{ext};base64,{icon_base64}">
+            <link rel="apple-touch-icon" href="data:image/{ext};base64,{icon_base64}">
+        </head>
+    """, unsafe_allow_html=True)
 
-# Intentar cargar icon.ico primero, si no existe usa icon.png
-if os.path.exists("icon.ico"):
-    set_favicon("icon.ico")
-elif os.path.exists("icon.png"):
-    set_favicon("icon.png")
+inject_pwa_headers()
 
 # Estilo visual moderno / Dark Mode con interfaz 3D Neumórfica
 st.markdown("""
@@ -84,7 +84,7 @@ st.sidebar.header("📁 Entrada de Datos")
 uploaded_dem = st.sidebar.file_uploader("Seleccionar DEM real (.tif)", type=["tif", "tiff"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Parámetros de Calidad HD")
+st.sidebar.header("⚙️️ Parámetros de Calidad HD")
 radio_suavizado = st.sidebar.slider("Nivel de Suavizado por Ventana Móvil", min_value=1, max_value=5, value=1, step=1)
 min_slope = st.sidebar.number_input("Pendiente mínima (evitar división por cero)", value=0.005, format="%.3f")
 
