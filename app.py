@@ -4,9 +4,10 @@ import time
 import rasterio
 import io
 import os
+import base64
 
-# Configuración de la página con tu ícono oficial Syntro
-icon_path = "icon.png" if os.path.exists("icon.png") else "💧"
+# Configuración de la página
+icon_path = "icon.ico" if os.path.exists("icon.ico") else ("icon.png" if os.path.exists("icon.png") else "💧")
 
 st.set_page_config(
     page_title="Syntro Hydro Pro - TWI Smooth HD",
@@ -14,6 +15,25 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Función para convertir el icono local a base64 e inyectarlo en el HTML <head> del navegador
+def set_favicon(icon_file):
+    if os.path.exists(icon_file):
+        with open(icon_file, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode()
+        ext = "ico" if icon_file.endswith(".ico") else "png"
+        st.markdown(f"""
+            <head>
+                <link rel="icon" href="data:image/{ext};base64,{encoded}">
+                <link rel="shortcut icon" href="data:image/{ext};base64,{encoded}">
+            </head>
+        """, unsafe_allow_html=True)
+
+# Intentar cargar icon.ico primero, si no existe usa icon.png
+if os.path.exists("icon.ico"):
+    set_favicon("icon.ico")
+elif os.path.exists("icon.png"):
+    set_favicon("icon.png")
 
 # Estilo visual moderno / Dark Mode con interfaz 3D Neumórfica
 st.markdown("""
@@ -47,17 +67,14 @@ st.markdown("""
         overflow-y: scroll;
         border: 1px solid #3a3b3c;
     }
-    .sidebar-logo {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 20px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
-# Mostrar el logo en la barra lateral si existe el archivo
+# Mostrar el logo en la barra lateral si existe
 if os.path.exists("icon.png"):
     st.sidebar.image("icon.png", use_container_width=True)
+elif os.path.exists("icon.ico"):
+    st.sidebar.image("icon.ico", use_container_width=True)
 
 st.title("💧 Syntro Hydro Pro: TWI de Alta Definición (Suavizado Topográfico)")
 st.markdown("Procesa tu DEM eliminando el efecto pixelado mediante interpolación avanzada y suavizado de relieve nativo.")
@@ -67,7 +84,7 @@ st.sidebar.header("📁 Entrada de Datos")
 uploaded_dem = st.sidebar.file_uploader("Seleccionar DEM real (.tif)", type=["tif", "tiff"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️️ Parámetros de Calidad HD")
+st.sidebar.header("⚙️ Parámetros de Calidad HD")
 radio_suavizado = st.sidebar.slider("Nivel de Suavizado por Ventana Móvil", min_value=1, max_value=5, value=1, step=1)
 min_slope = st.sidebar.number_input("Pendiente mínima (evitar división por cero)", value=0.005, format="%.3f")
 
@@ -106,7 +123,6 @@ if uploaded_dem is not None:
         status_text = st.empty()
         
         try:
-            # Guardar temporalmente el DEM cargado
             with open("temp_dem.tif", "wb") as f:
                 f.write(uploaded_dem.getbuffer())
             
@@ -129,33 +145,25 @@ if uploaded_dem is not None:
             status_text.text("Aplicando filtro de suavizado espacial al relieve...")
             time.sleep(0.5)
             
-            # Gestionar nulos y aplicar suavizado nativo
             if nodata is not None:
                 dem_clean = np.where(dem_data == nodata, np.nan, dem_data)
             else:
                 dem_clean = dem_data
                 
             dem_smooth = simple_smooth(dem_clean, radio_suavizado)
-            
-            # Rellenar cualquier borde restante si existiera
             dem_smooth = np.nan_to_num(dem_smooth, nan=np.nanmean(dem_clean))
             
             progress_bar.progress(65)
             status_text.text("Calculando gradientes y acumulación de flujo continua...")
             time.sleep(0.5)
             
-            # Cálculo de pendientes sobre el relieve suavizado
             dy, dx = np.gradient(dem_smooth, res_x)
             slope = np.arctan(np.sqrt(dx**2 + dy**2))
             slope = np.maximum(slope, min_slope)
             
-            # Cálculo de SCA refinado
             sca = np.abs(dx + dy) + (res_x * 2.0)
-            
-            # Cálculo final de TWI
             twi_data = np.log(sca / np.tan(slope))
             
-            # Enmascarar valores extremos o nulos
             twi_data[np.isnan(twi_data) | np.isinf(twi_data)] = -9999
             if nodata is not None:
                 twi_data[dem_data == nodata] = -9999
@@ -184,7 +192,6 @@ if uploaded_dem is not None:
             st.balloons()
             st.success("🎉 ¡El TWI ha sido procesado con suavizado topográfico de alta definición!")
             
-            # Botón de descarga del archivo corregido
             st.download_button(
                 label="📥 Descargar GeoTIFF TWI HD en UTM (.tif)",
                 data=output_stream,
