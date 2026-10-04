@@ -3,11 +3,14 @@ import numpy as np
 import time
 import rasterio
 import io
+import os
 
-# Configuración de la página
+# Configuración de la página con tu ícono oficial Syntro
+icon_path = "icon.png" if os.path.exists("icon.png") else "💧"
+
 st.set_page_config(
     page_title="Syntro Hydro Pro - TWI Smooth HD",
-    page_icon="💧",
+    page_icon=icon_path,
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -44,8 +47,17 @@ st.markdown("""
         overflow-y: scroll;
         border: 1px solid #3a3b3c;
     }
+    .sidebar-logo {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 20px;
+    }
     </style>
 """, unsafe_allow_html=True)
+
+# Mostrar el logo en la barra lateral si existe el archivo
+if os.path.exists("icon.png"):
+    st.sidebar.image("icon.png", use_container_width=True)
 
 st.title("💧 Syntro Hydro Pro: TWI de Alta Definición (Suavizado Topográfico)")
 st.markdown("Procesa tu DEM eliminando el efecto pixelado mediante interpolación avanzada y suavizado de relieve nativo.")
@@ -55,7 +67,7 @@ st.sidebar.header("📁 Entrada de Datos")
 uploaded_dem = st.sidebar.file_uploader("Seleccionar DEM real (.tif)", type=["tif", "tiff"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Parámetros de Calidad HD")
+st.sidebar.header("⚙️️ Parámetros de Calidad HD")
 radio_suavizado = st.sidebar.slider("Nivel de Suavizado por Ventana Móvil", min_value=1, max_value=5, value=1, step=1)
 min_slope = st.sidebar.number_input("Pendiente mínima (evitar división por cero)", value=0.005, format="%.3f")
 
